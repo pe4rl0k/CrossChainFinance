@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import Web3 from 'web3';
 import { LibraClient, LibraWallet } from 'libra-client';
 import { ethers } from 'ethers';
@@ -9,6 +9,7 @@ const libraNetwork = process.env.REACT_APP_LIBRA_NETWORK;
 const web3 = new Web3(ethNetwork);
 const libraClient = new LibraClient({ network: libraNetwork });
 const ethereumProvider = new ethers.providers.Web3Provider((window as any).ethereum);
+const libraWallet = new LibraWallet();
 
 interface WalletBalance {
   ethBalance: string;
@@ -16,34 +17,40 @@ interface WalletBalance {
 }
 
 const App: React.FC = () => {
-  const [account, setAccount] = useState("");
+  const [account, setAccount] = useState<string>("");
   const [balance, setBalance] = useState<WalletBalance>({ ethBalance: "0", libraBalance: "0" });
 
-  const connectWallet = async () => {
+  const connectWallet = useCallback(async () => {
     if ((window as any).ethereum) {
       const accounts = await ethereumProvider.send("eth_requestAccounts", []);
-      setAccount(accounts[0]);
+      const userAccount = accounts[0];
+      setAccount(userAccount);
     } else {
       alert("MetaMask is not installed!");
     }
-  };
+  }, []);
 
-  const fetchBalances = async (userAccount: string) => {
-    const ethBalance = await web3.eth.getBalance(userAccount);
-    const libraWallet = new LibraWallet();
+  const getLibraBalance = async () => {
     const libraAddress = libraWallet.newAccount().address.toHex();
     const libraAccount = await libraClient.getAccount(libraAddress);
-    const libraBalance = libraAccount.balances.map((balance) => balance.amount).join(",");
+    return libraAccount.balances.map((balance) => balance.amount).join(",");
+  };
+
+  const fetchBalances = useCallback(async (userAccount: string) => {
+    const ethBalance = await web3.eth.getBalance(userAccount);
+    const libraBalance = await getLibraBalance();
 
     setBalance({
       ethBalance: Web3.utils.fromWei(ethBalance, 'ether'),
       libraBalance,
     });
-  };
+  }, []);
 
   useEffect(() => {
-    if (account) fetchBalances(account);
-  }, [account]);
+    if (account) {
+      fetchBalances(account);
+    }
+  }, [account, fetchBalances]);
 
   return (
     <div>
