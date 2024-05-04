@@ -5,6 +5,7 @@ contract LendingContract {
     address public owner;
     uint256 public constant interestRate = 5; 
     uint256 public constant loanDuration = 365 days;
+    uint256 public constant extensionFeeRate = 1; // An additional 1% fee on the loan amount for extensions.
 
     struct Loan {
         address borrower;
@@ -13,6 +14,7 @@ contract LendingContract {
         uint256 interestAmount;
         uint256 startTime;
         bool isRepaid;
+        uint256 extensions; // Track how many times a loan has been extended.
     }
 
     mapping(address => Loan) public loans;
@@ -20,14 +22,15 @@ contract LendingContract {
     event DepositCollateral(address indexed borrower, uint256 amount);
     event LoanIssued(address indexed borrower, uint256 loanAmount);
     event LoanRepaid(address indexed borrower, uint256 amountPaidBack);
-    
+    event LoanExtended(address indexed borrower, uint256 newDueDate);
+
     modifier onlyOwner() {
         require(msg.sender == owner, "LendingContract: Caller is not the owner");
         _;
     }
 
     modifier notOnLoan(address _borrower) {
-        require(loans[_borrower].borrower == address(0), "LendingContract: Borrower already has an outstanding loan");
+        require(loans[_borrower].borrower == address(0) || loans[_borrower].isRepaid, "LendingContract: Borrower already has an outstanding loan");
         _;
     }
 
@@ -79,15 +82,33 @@ contract LendingContract {
         emit LoanRepaid(_borrower, msg.value);
     }
 
+    function extendLoanDuration(address _borrower) public payable {
+        Loan storage loan = loans[_borrower];
+        require(msg.sender == _borrower, "LendingContract: Only the borrower can extend the loan");
+        require(!loan.isRepaid, "LendingContract: Loan already repaid");
+        require(block.timestamp <= loan.startTime + loanDuration, "LendingContract: Cannot extend duration after loan due date");
+        
+        uint256 extensionFee = (loan.loanAmount * extensionFeeRate) / 100;
+        require(msg.value == extensionFee, "LendingContract: Incorrect extension fee");
+
+        // Increase the startTime by the original loanDuration to extend the due date.
+        loan.startTime += loanDuration;
+        loan.extensions += 1; // Track extensions
+
+        emit LoanExtended(_borrower, loan.startTime + loanDuration);
+    }
+
     function withdrawInterest() public onlyOwner {
         uint256 contractBalance = address(this).balance;
         uint256 totalCollateral = 0;
         
+        // Instead of limiting to a fixed number, iterate over known loans.
+        // Beware of potential gas limit issues in real-world usage.
         for (uint256 i = 0; i < 100; i++) {
             totalCollateral += loans[address(uint160(i))].collateralAmount;
         }
         uint256 profit = contractBalance - totalCollateral;
-        
+
         (bool sent, ) = owner.call{value: profit}("");
         require(sent, "LendingContract: Failed to withdraw profit");
     }
