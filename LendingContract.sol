@@ -1,121 +1,117 @@
-// SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
 contract LendingContract {
-    address public owner;
-    uint256 public constant interestRate = 5; 
-    uint256 public constant loanDuration = 365 days;
-    uint256 public constant extensionFeeRate = 1; // An additional 1% fee on the loan amount for extensions.
+    address public contractOwner;
+    uint256 public constant InterestRatePercent = 5; 
+    uint256 public constant LoanDurationSeconds = 365 days;
+    uint256 public constant ExtensionFeePercent = 1;
 
-    struct Loan {
+    struct LoanDetails {
         address borrower;
-        uint256 collateralAmount;
-        uint256 loanAmount;
-        uint256 interestAmount;
-        uint256 startTime;
-        bool isRepaid;
-        uint256 extensions; // Track how many times a loan has been extended.
+        uint256 collateralValue;
+        uint256 principalAmount;
+        uint256 interestDue;
+        uint256 loanStartTime;
+        bool isSettled;
+        uint256 extensionCount;
     }
 
-    mapping(address => Loan) public loans;
+    mapping(address => LoanDetails) public activeLoans;
 
-    event DepositCollateral(address indexed borrower, uint256 amount);
-    event LoanIssued(address indexed borrower, uint256 loanAmount);
-    event LoanRepaid(address indexed borrower, uint256 amountPaidBack);
-    event LoanExtended(address indexed borrower, uint256 newDueDate);
+    event CollateralDeposited(address indexed borrower, uint256 amount);
+    event LoanGranted(address indexed borrower, uint256 principalAmount);
+    event LoanSettled(address indexed borrower, uint256 settlementAmount);
+    event LoanPeriodExtended(address indexed borrower, uint256 newDueDate);
 
-    modifier onlyOwner() {
-        require(msg.sender == owner, "LendingContract: Caller is not the owner");
+    modifier onlyContractOwner() {
+        require(msg.sender == contractOwner, "LendingContract: Caller is not the owner");
         _;
     }
 
-    modifier notOnLoan(address _borrower) {
-        require(loans[_borrower].borrower == address(0) || loans[_borrower].isRepaid, "LendingContract: Borrower already has an outstanding loan");
+    modifier noActiveLoan(address _borrower) {
+        require(activeLoans[_borrower].borrower == address(0) || activeLoans[_borrower].isSettled, "LendingContract: Borrower already has an outstanding loan");
         _;
     }
 
     constructor() {
-        owner = msg.sender;
+        contractOwner = msg.sender;
     }
 
-    function depositCollateral() public payable notOnLoan(msg.sender) {
+    function depositCollateral() public payable noActiveLoan(msg.sender) {
         require(msg.value > 0, "LendingContract: Collateral must be greater than 0");
-        emit DepositCollateral(msg.sender, msg.value);
+        emit CollateralDeposited(msg.sender, msg.value);
     }
 
-    function issueLoan(address _borrower, uint256 _loanAmount) public onlyOwner {
-        require(_loanAmount > 0, "LendingContract: Loan amount must be greater than 0");
-        require(_loanAmount <= address(this).balance, "LendingContract: Insufficient balance in contract for loan");
-        require(loans[_borrower].collateralAmount > 0, "LendingContract: Borrower has not deposited any collateral");
+    function approveLoan(address _borrower, uint256 _principalAmount) public onlyContractOwner {
+        require(_principalAmount > 0, "LendingContract: Loan amount must be greater than 0");
+        require(_principalAmount <= address(this).balance, "LendingContract: Insufficient balance in contract for loan");
+        require(activeLoans[_borrower].collateralValue > 0, "LendingContract: Borrower has not deposited any collateral");
 
-        Loan memory newLoan;
+        LoanDetails memory newLoan;
         newLoan.borrower = _borrower;
-        newLoan.collateralAmount = loans[_borrower].collateralAmount;
-        newLoan.loanAmount = _loanAmount;
-        newLoan.interestAmount = calculateInterest(_loanAmount);
-        newLoan.startTime = block.timestamp;
-        newLoan.isRepaid = false;
+        newLoan.collateralValue = activeLoans[_borrower].collateralValue;
+        newLoan.principalAmount = _principalAmount;
+        newLoan.interestDue = calculateInterestDue(_principalAmount);
+        newLoan.loanStartTime = block.timestamp;
+        newLoan.isSettled = false;
         
-        loans[_borrower] = newLoan;
+        activeLoans[_borrower] = newLoan;
 
-        (bool sent, ) = _borrower.call{value: _loanAmount}("");
+        (bool sent, ) = _borrower.call{value: _principalAmount}("");
         require(sent, "LendingContract: Failed to send Ether to borrower");
 
-        emit LoanIssued(_borrower, _loanAmount);
+        emit LoanGranted(_borrower, _principalAmount);
     }
 
-    function calculateInterest(uint256 _loanAmount) private pure returns (uint256) {
-        return (_loanAmount * interestRate) / 100;
+    function calculateInterestDue(uint256 _principalAmount) private pure returns (uint256) {
+        return (_principalAmount * InterestRatePercent) / 100;
     }
 
-    function repayLoan(address _borrower) public payable {
-        Loan storage loan = loans[_borrower];
+    function settleLoan(address _borrower) public payable {
+        LoanDetails storage loan = activeLoans[_borrower];
 
-        require(block.timestamp <= loan.startTime + loanDuration, "LendingContract: Loan period has expired");
-        require(msg.value >= loan.loanAmount + loan.interestAmount, "LendingContract: Repayment amount is insufficient");
+        require(block.timestamp <= loan.loanStartTime + LoanDurationSeconds, "LendingContract: Loan period has expired");
+        require(msg.value >= loan.principalAmount + loan.interestDue, "LendingContract: Repayment amount is insufficient");
 
-        loan.isRepaid = true;
+        loan.isSettled = true;
 
-        (bool sent, ) = _borrower.call{value: loan.collateralAmount}("");
+        (bool sent, ) = _borrower.call{value: loan.collateralValue}("");
         require(sent, "LendingContract: Failed to return collateral to borrower");
 
-        emit LoanRepaid(_borrower, msg.value);
+        emit LoanSettled(_borrower, msg.value);
     }
 
-    function extendLoanDuration(address _borrower) public payable {
-        Loan storage loan = loans[_borrower];
+    function prolongLoanTerm(address _borrower) public payable {
+        LoanDetails storage loan = activeLoans[_borrower];
         require(msg.sender == _borrower, "LendingContract: Only the borrower can extend the loan");
-        require(!loan.isRepaid, "LendingContract: Loan already repaid");
-        require(block.timestamp <= loan.startTime + loanDuration, "LendingContract: Cannot extend duration after loan due date");
+        require(!loan.isSettled, "LendingContract: Loan already repaid");
+        require(block.timestamp <= loan.loanStartTime + LoanDurationSeconds, "LendingContract: Cannot extend duration after loan due date");
         
-        uint256 extensionFee = (loan.loanAmount * extensionFeeRate) / 100;
-        require(msg.value == extensionFee, "LendingContract: Incorrect extension fee");
+        uint256 extensionCharge = (loan.principalAmount * ExtensionFeePercent) / 100;
+        require(msg.value == extensionCharge, "LendingContract: Incorrect extension fee");
 
-        // Increase the startTime by the original loanDuration to extend the due date.
-        loan.startTime += loanDuration;
-        loan.extensions += 1; // Track extensions
+        loan.loanStartTime += LoanDurationSeconds;
+        loan.extensionCount++;
 
-        emit LoanExtended(_borrower, loan.startTime + loanDuration);
+        emit LoanPeriodExtended(_borrower, loan.loanStartTime + LoanDurationSeconds);
     }
 
-    function withdrawInterest() public onlyOwner {
-        uint256 contractBalance = address(this).balance;
-        uint256 totalCollateral = 0;
+    function withdrawAccruedInterest() public onlyContractOwner {
+        uint256 balanceInContract = address(this).balance;
+        uint256 totalCollateralHeld = 0;
         
-        // Instead of limiting to a fixed number, iterate over known loans.
-        // Beware of potential gas limit issues in real-world usage.
         for (uint256 i = 0; i < 100; i++) {
-            totalCollateral += loans[address(uint160(i))].collateralAmount;
+            totalCollateralHeld += activeLoans[address(uint160(i))].collateralValue;
         }
-        uint256 profit = contractBalance - totalCollateral;
+        uint256 earnings = balanceInContract - totalCollateralHeld;
 
-        (bool sent, ) = owner.call{value: profit}("");
-        require(sent, "LendingContract: Failed to withdraw profit");
+        (bool sent, ) = contractOwner.call{value: earnings}("");
+        require(sent, "LendingContract: Failed to withdraw earnings");
     }
 
     receive() external payable {}
 
-    function resetLoan(address _borrower) public onlyOwner notOnLoan(_borrower) {
-        delete loans[_borrower];
+    function clearLoanRecord(address _borrower) public onlyContractOwner noActiveLoan(_borrower) {
+        delete activeLoans[_borrower];
     }
 }
