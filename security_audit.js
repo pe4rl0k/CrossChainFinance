@@ -3,9 +3,9 @@ const fs = require('fs');
 const path = require('path');
 require('dotenv').config(); 
 
-const runSlither = (solidityFile, callback) => {
-    const slitherCmd = `slither ${solidityFile} --json slither-report.json`;
-    exec(slitherCmd, (error, stdout, stderr) => {
+const executeSlitherAnalysis = (solidityFilePath, callback) => {
+    const slitherCommand = `slither ${solidityFilePath} --json slither-report.json`;
+    exec(slitherCommand, (error, stdout, stderr) => {
         if (error) {
             console.error(`Slither error: ${error}`);
             return callback(error, null);
@@ -24,9 +24,9 @@ const runSlither = (solidityFile, callback) => {
     });
 };
 
-const runMythX = (solidityFile, callback) => {
-    const mythxCmd = `mythx analyze ${solidityFile} --json`;
-    exec(mythxCmd, (error, stdout, stderr) => {
+const executeMythXAnalysis = (solidityFilePath, callback) => {
+    const mythXCommand = `mythx analyze ${solidityFilePath} --json`;
+    exec(mythXCommand, (error, stdout, stderr) => {
         if (error) {
             console.error(`MythX error: ${error}`);
             return callback(error, null);
@@ -39,27 +39,31 @@ const runMythX = (solidityFile, callback) => {
     });
 };
 
-const auditSolidityFile = (solidityFile) => {
-    console.log(`Auditing file: ${solidityFile}`);
+const auditSolidityContract = (solidityFilePath) => {
+    console.log(`Auditing contract: ${solidityFilePath}`);
     
     const auditTool = process.env.SECURITY_AUDIT_TOOL || 'slither';
 
-    const auditFunction = auditTool === 'mythx' ? runMythX : runSlither;
+    const selectedAuditFunction = auditTool === 'mythx' ? executeMythXAnalysis : executeSlitherAnalysis;
     
-    auditFunction(solidityFile, (err, report) => {
+    selectedAuditFunction(solidityFilePath, (err, auditReport) => {
         if (err) {
-            console.error(`Failed to audit ${solidityFile} using ${auditTool}`, err);
+            console.error(`Failed to audit ${solidityFilePath} using ${auditTool}`, err);
             return;
         }
 
-        const reportFile = `audit-report-${path.basename(solidityFile, '.sol')}-${auditTool}.json`;
+        const auditReportFileName = `audit-report-${path.basename(solidityFilePath, '.sol')}-${auditTool}.json`;
 
-        fs.writeFile(reportFile, JSON.stringify(report, null, 2), (writeErr) => {
-            if (writeErr) {
-                console.error(`Failed to write the report to ${reportFile}`, writeErr);
+        fs.writeFile(auditReportFileName, JSON.stringify(auditReport, null, 2), (writeError) => {
+            if (writeError) {
+                console.error(`Failed to write the audit report to ${auditReportFileName}`, writeError);
                 return;
             }
-            console.log(`Audit report generated at ${reportFile}`);
+            console.log(`Audit report generated at ${auditReportFileName}`);
         });
     });
+};
+
+module.exports = {
+    auditSolidityContract
 };
