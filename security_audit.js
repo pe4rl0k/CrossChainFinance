@@ -13,9 +13,6 @@ const executeSlitherAnalysis = (solidityFilePath, callback) => {
     }
     if (stderr) {
       console.error(`Slither standard error: ${stderr}`);
-      // It may not be an error at all times; some tools use stderr for logs.
-      // Comment the line below to treat stderr as informative rather than failure.
-      // return callback(new Error(stderr), null);
     }
 
     fs.readFile('slither-report.json', (err, data) => {
@@ -44,8 +41,6 @@ const executeMythXAnalysis = (solidityFilePath, callback) => {
     }
     if (stderr) {
       console.error(`MythX standard error: ${stderr}`);
-      // Uncomment below for treating stderr as error
-      // return callback(new Error(stderr), null);
     }
 
     try {
@@ -82,6 +77,15 @@ const auditSolidityContract = (solidityFilePath) => {
   });
 };
 
+// New function to list available security audit tools
+const listAvailableAuditTools = () => {
+  console.log("Available Security Audit Tools:");
+  console.log("1. Slither");
+  console.log("2. MythX");
+  console.log("Set the SECURITY_AUDIT_TOOL environment variable to 'slither' or 'mythx' to choose your preferred tool.");
+};
+
 module.exports = {
-  auditSolidityContract
+  auditSolidityContract,
+  listAvailableAuditTools // Exporting the new function
 };
